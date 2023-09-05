@@ -1,0 +1,125 @@
+*** Settings ***
+
+Resource    /tmp/attachments/comcast_automation_keywords.txt
+
+Library     CXTA
+Resource    cxta.robot
+
+Library     String
+Library     BuiltIn
+Library     Dialogs
+Library     DateTime
+Library     Collections
+
+
+*** Variables ***
+
+${min_links}=  ${2}
+${DUT}=   CEG1
+${DUT_BUNDLE_INTF}=  Bundle-Ether203
+@{DUT_Bundle-Ether}=  Hund0/0/1/0  Hund0/0/1/1  Hund0/0/1/2  Hund0/0/1/3
+${BUNDLE_PING_IP}=  9.10.2.50
+
+*** Test Cases ***
+
+Connect to Device
+    # Tell Robot Framework what testbed file to use.
+    load testbed
+    # Instruct robot to connect to vty on the device - telnet
+    connect to device "${DUT}"
+
+Verify Bundle Interface is up and has expected members Active
+    # Configure min links
+    run "conf t"
+    run "interface ${DUT_BUNDLE_INTF}"
+    run "bundle minimum-active links ${min_links}"
+    run "commit"
+    run "end"
+    # Verify interfaces on DUT
+    ${DUT_BE_member_count}=  Get Length  ${DUT_Bundle-Ether}
+    Set Suite Variable    ${DUT_BE_member_count}
+    Set Test Message   ${DUT_BE_member_count}
+    run "show bundle ${DUT_BUNDLE_INTF}"
+    values "Status" and "Up" exist on same line
+    values "Local links" and "${DUT_BE_member_count} / 0 / ${DUT_BE_member_count}" exist on same line
+    Log   ${DUT_BUNDLE_INTF} is Up
+    set Test Message  ${DUT_BUNDLE_INTF} is Up
+    
+Check ISIS Neighbor up on bundle ether
+    # Verify isis adjacency up
+    run "show isis neighbors ${DUT_BUNDLE_INTF}"
+    output contains "Up"
+    Log   ${DUT_BUNDLE_INTF} is Up
+    set Test Message  ${DUT_BUNDLE_INTF} is Up
+
+Verify Bulk Ping on Bundle Works
+    # Verify ping
+    # build arp with initial ping
+    run "ping ${BUNDLE_PING_IP}"
+    # check if default ping passes
+    run "ping ${BUNDLE_PING_IP}"
+    values "Success rate" and "100 percent" exist on same line
+    # now check bulk ping
+    run "ping ${BUNDLE_PING_IP} count 1000"
+    values "Success rate" and "100 percent" exist on same line
+    Log   ${DUT_BUNDLE_INTF} is Pinging
+    set Test Message  ${DUT_BUNDLE_INTF} is Pinging
+
+Shut bundle members for min links
+    # calculate the number of members to be shut
+    ${members_diff}=    Evaluate    ${DUT_BE_member_count}-${min_links}
+    Set Suite Variable    ${members_diff}
+    Log    ${members_diff}
+    ${members_shut}=    Evaluate    ${members_diff}+1
+    Set Suite Variable    ${members_shut}
+    Log    ${members_shut}
+    # shut members
+    FOR   ${i}    IN RANGE    ${members_shut}
+          run "conf t"
+          run "interface ${DUT_Bundle-Ether}[${i}]"
+          run "shutdown"
+          run "commit"
+          run "end"
+    END
+           
+Verify bundle is down with min links not met
+    sleep  20s
+    run "show bundle ${DUT_BUNDLE_INTF}"
+    ${members_notshut}=    Evaluate    ${min_links}-1
+    values "Status" and "Down" exist on same line
+    values "Local links <active/standby/configured>" and "0 / ${members_notshut} / ${DUT_BE_member_count}" exist on same line
+    ${min_links_string}    Convert to string    ${min_links}
+    values "Minimum active links" and "${min_links_string}" exist on same line
+    output contains "Not enough links available to meet minimum-active threshold"
+    Log   ${DUT_BUNDLE_INTF} is Down
+    set Test Message  ${DUT_BUNDLE_INTF} is Down
+    
+No shut members of bundle
+    FOR   ${i}    IN RANGE    ${members_shut}
+          run "conf t"
+          run "interface ${DUT_Bundle-Ether}[${i}]"
+          run "no shutdown"
+          run "commit"
+          run "end"
+    END
+           
+Verify bundle is Up with min links met
+    sleep  50s
+    run "show bundle ${DUT_BUNDLE_INTF}"
+    values "Status" and "Up" exist on same line
+    values "Local links" and "${DUT_BE_member_count} / 0 / ${DUT_BE_member_count}" exist on same line
+    Log   ${DUT_BUNDLE_INTF} is Up
+    set Test Message  ${DUT_BUNDLE_INTF} is Up
+    
+Verify Bulk Ping on Bundle works after flaps
+    # Verify ping
+    # build arp with initial ping
+    run "ping ${BUNDLE_PING_IP}"
+    # check if default ping passes
+    run "ping ${BUNDLE_PING_IP}"
+    values "Success rate" and "100 percent" exist on same line
+    # now check bulk ping
+    run "ping ${BUNDLE_PING_IP} count 1000"
+    values "Success rate" and "100 percent" exist on same line
+    Log   ${DUT_BUNDLE_INTF} is Pinging
+    set Test Message  ${DUT_BUNDLE_INTF} is Pinging
